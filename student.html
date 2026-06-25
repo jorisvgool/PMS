@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html { height: 100%; font-family: Arial, sans-serif; background-color: #111; overflow: hidden; }
+        .header-bar { height: 8svh; width: 100vw; background-color: #000000; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; border-bottom: 1px solid #222; }
+        .container { display: flex; flex-direction: column; height: 92svh; width: 100vw; }
+        .choice-btn { flex: 1 1 0%; height: 25%; width: 100%; border: none; outline: none; font-size: 3rem; font-weight: bold; color: white; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .choice-btn:active { opacity: 0.7; }
+        .btn-a { background-color: #e24432; }
+        .btn-b { background-color: #2c75d4; }
+        .btn-c { background-color: #e2a100; }
+        .btn-d { background-color: #2ca05a; }
+        .submitted-screen { display: flex; justify-content: center; align-items: center; height: 92svh; width: 100vw; background-color: #1e1e1e; color: #2ca05a; font-size: 1.5rem; text-align: center; padding: 20px; }
+        .loading { color: white; text-align: center; margin-top: 40vh; font-size: 1.2rem; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="question-header" class="header-bar" style="display: none;">QUESTION 1</div>
+<div id="loading-state" class="loading">Connecting to quiz...</div>
+
+<div class="container hidden" id="quiz-container">
+    <button class="choice-btn btn-a" onclick="submitAnswer('A')">A</button>
+    <button class="choice-btn btn-b" onclick="submitAnswer('B')">B</button>
+    <button class="choice-btn btn-c" onclick="submitAnswer('C')">C</button>
+    <button class="choice-btn btn-d" onclick="submitAnswer('D')">D</button>
+</div>
+
+<div id="submitted-container" class="submitted-screen hidden">
+    <h1 id="submitted-text">✓ Answer Submitted!</h1>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+    apiKey: "AIzaSyBLVRYs5xLJ5sGexrka3sUQ7p1Teo0r_BE",
+    authDomain: "pms-quiz-1af7e.firebaseapp.com",
+    databaseURL: "https://pms-quiz-1af7e-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "pms-quiz-1af7e",
+    storageBucket: "pms-quiz-1af7e.firebasestorage.app",
+    messagingSenderId: "1021435248028",
+    appId: "1:1021435248028:web:caa0ceb5c5fd83d3d6dc59",
+    measurementId: "G-CFX5SNN7GS"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const CONTAINER = document.getElementById("quiz-container");
+const SUBMITTED = document.getElementById("submitted-container");
+const SUBMITTED_TEXT = document.getElementById("submitted-text");
+const LOADING = document.getElementById("loading-state");
+const HEADER = document.getElementById("question-header");
+
+let studentId = sessionStorage.getItem("pms_student_id");
+if (!studentId) {
+    studentId = "user_" + Math.random().toString(36).substring(2, 15);
+    sessionStorage.setItem("pms_student_id", studentId);
+}
+
+let activeQuestionPath = "questions/q_0";
+let holdsActiveVote = false;
+let currentQuestionListener = null;
+
+function setViewState(state) {
+    LOADING.classList.add("hidden");
+    HEADER.style.display = "flex";
+    if (state === "voting") {
+        SUBMITTED.classList.add("hidden");
+        CONTAINER.classList.remove("hidden");
+    } else if (state === "submitted") {
+        CONTAINER.classList.add("hidden");
+        SUBMITTED.classList.remove("hidden");
+    }
+}
+
+// Watch active question parameter exclusively
+onValue(ref(db, "activeQuestion"), (snapshot) => {
+    const activeIndex = snapshot.val() !== null ? snapshot.val() : 0;
+    activeQuestionPath = `questions/q_${activeIndex}`;
+    HEADER.innerText = `QUESTION ${activeIndex + 1}`;
+    listenToCurrentQuestion();
+});
+
+function listenToCurrentQuestion() {
+    if (currentQuestionListener) currentQuestionListener();
+
+    currentQuestionListener = onValue(ref(db, activeQuestionPath), (snapshot) => {
+        const questionData = snapshot.val() || {};
+        const answers = questionData.answers || {};
+        const serverToken = questionData.sessionToken || "initial";
+        
+        const localToken = localStorage.getItem(`pms_token_${activeQuestionPath}`);
+        const myExistingVote = answers[studentId];
+
+        if (localToken !== serverToken) {
+            localStorage.setItem(`pms_token_${activeQuestionPath}`, serverToken);
+            holdsActiveVote = false;
+            setViewState("voting");
+        } else if (myExistingVote) {
+            holdsActiveVote = true;
+            SUBMITTED_TEXT.innerText = `✓ Answer ${myExistingVote.answer} Submitted!`;
+            setViewState("submitted");
+        } else {
+            holdsActiveVote = false;
+            setViewState("voting");
+        }
+    });
+}
+
+window.submitAnswer = function(answer){
+    if (holdsActiveVote) return;
+    holdsActiveVote = true;
+
+    SUBMITTED_TEXT.innerText = `✓ Answer ${answer} Submitted!`;
+    setViewState("submitted");
+
+    set(ref(db, `${activeQuestionPath}/answers/${studentId}`), {
+        answer: answer,
+        timestamp: Date.now()
+    }).catch((error) => {
+        console.error(error);
+        holdsActiveVote = false;
+        setViewState("voting");
+        alert("Submission failed.");
+    });
+}
+</script>
+</body>
+</html>
